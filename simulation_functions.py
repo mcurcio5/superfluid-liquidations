@@ -182,46 +182,84 @@ def calculate_liquidator_pl(df, params):
                     1 - params['refund_rate']))
 
 
-# will make this function more readable...
-def calculate_best_case_liquidator_pl(df, params):
-    """ calculates the best-case profit & loss for a liquidator that can perfectly predict gas n minutes ahead
+def calculate_liquidator_pl_with_prediction(df, params):
+    """ calculates the profit & loss for a liquidator that can perfectly predict gas n minutes ahead
         function assumes that they cannot predict ETH prices """
     n = int(params['gas_prediction_ability'] * 60)  # n minutes
     gas_prices = np.array(df['three_min_median'])  # use 3 min median gas price for accurate execution prices
-    gas_indices = np.arange(n - 2)[None, :] + np.arange(gas_prices.shape[0] - n + 3)[:, None]
-    n_rows = gas_indices.shape[0]
+    output_n_rows = gas_prices.shape[0] - n + 3
 
-    total_margin_value = stream_rate_to_margin(np.array(df['avg_liquidation_size']), params['upfront_hours'])
-    minute_margin_value = month_to_minute(np.array(df['avg_liquidation_size']))
-    eth_price = np.array(df['price'])
+    # create mask to select only rows with liquidations for ~50x more efficient computation
+    l_mask = np.asarray(np.array(df['n_liquidated']) > 0)  # for selecting rows in full df
+    l_mask_subset = l_mask[:output_n_rows]  # excludes rows at end of dataset without full window of data
 
-    # margin value decreases over time
-    margin_value = (total_margin_value[:, None] - np.arange(n - 2)[None, :] * minute_margin_value[:, None])[:n_rows, :]
+    # gas indices create windows of size n - 2 by referencing indices in gas_prices
+    gas_indices = np.arange(n - 2)[None, :] + np.arange(gas_prices.shape[0] - n + 3)[l_mask_subset][:, None]
+    n_rows = gas_indices.shape[0]  # n rows in subspace of only rows with liquidations
+
+    posted_margin = stream_rate_to_margin(np.array(df['avg_liquidation_size'])[l_mask], params['upfront_hours'])
+    stream_per_minute = month_to_minute(np.array(df['avg_liquidation_size'])[l_mask])
+    eth_price = np.array(df['price'])[l_mask]
+
+    remaining_margin = (posted_margin[:, None] - np.arange(n - 2)[None, :] * stream_per_minute[:, None])[:n_rows, :]
     tx_costs = LIQUIDATION_GAS * gwei_to_eth(gas_prices[gas_indices]) * eth_price[:n_rows, None] * (
-                1 - params['refund_rate'])
+            1 - params['refund_rate'])  # for every possible time per liquidation
 
-    df = df[:n_rows]  # resize df because of prediction window
-    n_liquidated = np.array(df['n_liquidated'])
-    liquidator_profits = margin_value - tx_costs
+    liquidator_profits = remaining_margin - tx_costs
     best_execution_indices = np.argmax(liquidator_profits, axis=1)
 
-    df['gas_price_paid'] = gas_prices[gas_indices][np.arange(n_rows), best_execution_indices] * n_liquidated
-    df['liquidator_pl'] = liquidator_profits[np.arange(n_rows), best_execution_indices] * n_liquidated
+    df = df[:output_n_rows]  # cuts end of df due to window size
+
+    gas_prices_paid = np.zeros(output_n_rows)  # initialize for speed
+    liquidator_pl = np.zeros(output_n_rows)
+
+    subset_size = np.sum(l_mask_subset)
+    gas_prices_paid[l_mask_subset] = gas_prices[gas_indices][np.arange(n_rows), best_execution_indices][:subset_size]
+    liquidator_pl[l_mask_subset] = liquidator_profits[np.arange(n_rows), best_execution_indices][:subset_size]
+
+    df['gas_price_paid'] = gas_prices_paid
+    df['liquidator_pl'] = liquidator_pl
 
     return df
 
 
-# will fix this ugly if else
+# code without optimization (~50x slower)
+# def calculate_best_case_liquidator_pl(df, params):
+#     """ calculates the profit & loss for a liquidator that can perfectly predict gas n minutes ahead
+#         function assumes that they cannot predict ETH prices """
+#     n = int(params['gas_prediction_ability'] * 60)  # n minutes
+#     gas_prices = np.array(df['three_min_median'])  # use 3 min median gas price for accurate execution prices
+#     gas_indices = np.arange(n - 2)[None, :] + np.arange(gas_prices.shape[0] - n + 3)[:, None]
+#     n_rows = gas_indices.shape[0]
+#
+#     posted_margin = stream_rate_to_margin(np.array(df['avg_liquidation_size']), params['upfront_hours'])
+#     stream_per_minute = month_to_minute(np.array(df['avg_liquidation_size']))
+#     eth_price = np.array(df['price'])
+#
+#     # margin left is original margin minus the margin lost every minute elapsed
+#     margin_left = (posted_margin[:, None] - np.arange(n - 2)[None, :] * stream_per_minute[:, None])[:n_rows, :]
+#     tx_costs = LIQUIDATION_GAS * gwei_to_eth(gas_prices[gas_indices]) * eth_price[:n_rows, None] * (
+#                 1 - params['refund_rate'])
+#
+#     df = df[:n_rows]  # resize df because of prediction window
+#     n_liquidated = np.asarray(np.array(df['n_liquidated']) > 0) # MAKE MASK
+#     liquidator_profits = margin_left - tx_costs
+#     best_execution_indices = np.argmax(liquidator_profits, axis=1)
+#
+#     df['gas_price_paid'] = gas_prices[gas_indices][np.arange(n_rows), best_execution_indices] * n_liquidated
+#     df['liquidator_pl'] = liquidator_profits[np.arange(n_rows), best_execution_indices] * n_liquidated
+#
+#     return df
+
+
 def calculate_gas_tank_pl(df, params):
     """ calculates gas tank profit and loss in eth and usd """
-    if params['gas_prediction_ability'] < 3 / 60:
-        df['gas_refunded_eth'] = LIQUIDATION_GAS * df['n_liquidated'] * gwei_to_eth(df['median_gas_price']) * params[
-            'refund_rate']
-    else:
-        df['gas_refunded_eth'] = LIQUIDATION_GAS * df['n_liquidated'] * gwei_to_eth(df['gas_price_paid']) * params[
-            'refund_rate']
+    eth_price_col = 'median_gas_price' if params['gas_prediction_ability'] < 3 / 60 else 'gas_price_paid'
+
+    df['gas_refunded_eth'] = LIQUIDATION_GAS * df['n_liquidated'] * gwei_to_eth(df[eth_price_col]) * params['refund_rate']
     df['gas_tank_eth_pl'] = df['n_opened'] * params['upfront_fee'] - df['gas_refunded_eth']
     df['gas_tank_usd_pl'] = df['gas_tank_eth_pl'] * df['price']
+
     return df
 
 
@@ -230,7 +268,8 @@ def calculate_all_pl(df, params):
     if params['gas_prediction_ability'] < 3 / 60:  # minimum is 3 minutes for function to work
         df['liquidator_pl'] = calculate_liquidator_pl(df, params)
     else:
-        df = calculate_best_case_liquidator_pl(df, params)
+        df = calculate_liquidator_pl_with_prediction(df, params)
+
     return calculate_gas_tank_pl(df, params)
 
 
