@@ -1,5 +1,5 @@
 #########
-# These functions simulate the P&L for the Superfluid liquidations protocol given parameters and data
+# These functions simulate the profit & loss for Superfluid liquidations given parameters and data
 #########
 
 import pandas as pd
@@ -54,11 +54,12 @@ def sample_new_stream_times(n_minutes, params):
         assumes constant arrival of new streams """
     n_months = minute_to_month(n_minutes)
     expected_stream_openings = int(params['monthly_opened_streams'] * n_months // 1)
+
     return rng.uniform(0, n_minutes, expected_stream_openings).astype(int)
 
 
 def calculate_liquidation_probabilities(params):
-    """ calculates probabilities of self-closed vs liquidation events from params """
+    """ calculates probabilities of self-closed vs liquidation events """
     prob_self_closed = 1 / (params['average_stream_lifetime'] * 24 * 60)
     prob_liquidated = percent_to_dec(month_to_minute(params['percent_accidently_liquidated_per_month']))
     prob_closing_tx_is_liquidation = prob_liquidated / (prob_liquidated + prob_self_closed)
@@ -67,12 +68,12 @@ def calculate_liquidation_probabilities(params):
 
 
 def remove_invalid_times(times, n_minutes):
-    """ gets rid of events that occur after the current time window """
+    """ removes events that occur after the time window """
     return times[np.asarray(times < n_minutes)].astype(int)
 
 
 def simulate_naive_liquidation_times(times, n_minutes, params):
-    """ simulates arrival of self-closes and liquidations without considering incentives """
+    """ simulates arrival of self-closes and liquidations without considering user's incentives """
     n_samples = times.shape[0]
     prob_self_closed, prob_liquidated, prob_closing_tx_is_liquidation = calculate_liquidation_probabilities(params)
 
@@ -89,25 +90,27 @@ def simulate_naive_liquidation_times(times, n_minutes, params):
 def sample_stream_sizes(liquidations_size, self_closed_size, params):
     """ samples stream sizes from gamma distribution """
     theta = params['average_stream_size'] / (2 * np.sqrt(GAMMA_K))
+
     return rng.gamma(GAMMA_K, theta, size=liquidations_size), rng.gamma(GAMMA_K, theta, size=self_closed_size)
 
 
-def get_deliberate_liquidations(gas_price, eth_price, self_closed_times, self_closed_sizes, params):
+def identify_deliberate_liquidations(gas_price, eth_price, self_closed_times, self_closed_sizes, params):
     """ returns mask of self-closed liquidations where user opts to deliberately default due to high gas costs """
     self_closing_cost = gwei_to_eth(gas_price[self_closed_times]) * LIQUIDATION_GAS * eth_price[
         self_closed_times] + params['min_self_liquidation_savings']
     self_closing_margin_value = stream_rate_to_margin(self_closed_sizes, params['upfront_hours'])
+
     return np.asarray(self_closing_cost > self_closing_margin_value)
 
 
-def filter_liquidations_by_size(liquidation_times, self_closed_times, gas_price, eth_price, n_minutes, params):
-    """ considers that if self-closing cost + min_liquidation_savings > margin value, liquidate at 100% frequency
-        smaller streams, thus, get liquidated at a high frequency """
+def convert_small_self_closes_to_liquidations(liquidation_times, self_closed_times, gas_price, eth_price, params):
+    """ liquidates at 100% frequency where self-closing cost + min_self_liquidation_savings > margin value
+        liquidates small streams at a high frequency """
     liquidation_sizes, self_closed_sizes = sample_stream_sizes(liquidation_times.shape[0],
                                                                self_closed_times.shape[0], params)
 
-    deliberate_liquidations_mask = get_deliberate_liquidations(gas_price, eth_price, self_closed_times,
-                                                               self_closed_sizes, params)
+    deliberate_liquidations_mask = identify_deliberate_liquidations(gas_price, eth_price, self_closed_times,
+                                                                    self_closed_sizes, params)
 
     liquidation_times = np.concatenate([liquidation_times, self_closed_times[deliberate_liquidations_mask]])
     liquidation_sizes = np.concatenate([liquidation_sizes, self_closed_sizes[deliberate_liquidations_mask]])
@@ -119,13 +122,14 @@ def filter_liquidations_by_size(liquidation_times, self_closed_times, gas_price,
 
 
 def simulate_stream_ends(times, gas_price, eth_price, n_minutes, params):
-    """ simulate stream closing times, types, and sizes """
+    """ simulate stream closing times and sizes for self-closed and liquidations """
     liquidation_times, self_closed_times = simulate_naive_liquidation_times(times, n_minutes, params)
-    return filter_liquidations_by_size(liquidation_times, self_closed_times, gas_price, eth_price, n_minutes, params)
+
+    return convert_small_self_closes_to_liquidations(liquidation_times, self_closed_times, gas_price, eth_price, params)
 
 
 def simulate_streams(df, params):
-    """ simulates stream start & end times, stream sizes, self-closings, liquidations """
+    """ simulates stream start and end times, stream sizes, self-closings, liquidations """
     n_minutes = df.shape[0]
     new_stream_times = sample_new_stream_times(n_minutes, params)
     liquidation_times, self_closed_times, liquidation_sizes, self_closed_sizes = simulate_stream_ends(
@@ -150,8 +154,8 @@ def bin_times_and_sizes(times, n_minutes, sizes=False):
     return binned_times
 
 
-def run_all_simulations(df, params):
-    """ runs simulations and appends results to df """
+def simulate_streams_and_liquidations(df, params):
+    """ simulates streams and liquidations data """
     n_minutes = df.shape[0]
     new_stream_times, liquidation_times, self_closed_times, liquidation_sizes, self_closed_sizes = simulate_streams(df,
                                                                                                                     params)
@@ -171,19 +175,19 @@ def run_all_simulations(df, params):
 
 
 ####
-# functions for calculating profit and loss of a simulation run
+# functions for calculating a simulation run's profit & loss for gas tank and liquidator
 ####
 
 
 def calculate_liquidator_pl(df, params):
-    """ calculates liquidator's profit & loss for each minute given no gas prediction """
+    """ calculates liquidator's profit & loss given no gas prediction capability """
     return (df['n_liquidated'] * stream_rate_to_margin(df['avg_liquidation_size'], params['upfront_hours']) -
             LIQUIDATION_GAS * df['n_liquidated'] * gwei_to_eth(df['median_gas_price']) * df['price'] * (
                     1 - params['refund_rate']))
 
 
 def calculate_liquidator_pl_with_prediction(df, params):
-    """ calculates the profit & loss for a liquidator that can perfectly predict gas n minutes ahead
+    """ calculates the profit & loss for a liquidator that can perfectly predict gas price n minutes ahead
         function assumes that they cannot predict ETH prices """
     n = int(params['gas_prediction_ability'] * 60)  # n minutes
     gas_prices = np.array(df['three_min_median'])  # use 3 min median gas price for accurate execution prices
@@ -223,37 +227,8 @@ def calculate_liquidator_pl_with_prediction(df, params):
     return df
 
 
-# code without optimization (~50x slower)
-# def calculate_best_case_liquidator_pl(df, params):
-#     """ calculates the profit & loss for a liquidator that can perfectly predict gas n minutes ahead
-#         function assumes that they cannot predict ETH prices """
-#     n = int(params['gas_prediction_ability'] * 60)  # n minutes
-#     gas_prices = np.array(df['three_min_median'])  # use 3 min median gas price for accurate execution prices
-#     gas_indices = np.arange(n - 2)[None, :] + np.arange(gas_prices.shape[0] - n + 3)[:, None]
-#     n_rows = gas_indices.shape[0]
-#
-#     posted_margin = stream_rate_to_margin(np.array(df['avg_liquidation_size']), params['upfront_hours'])
-#     stream_per_minute = month_to_minute(np.array(df['avg_liquidation_size']))
-#     eth_price = np.array(df['price'])
-#
-#     # margin left is original margin minus the margin lost every minute elapsed
-#     margin_left = (posted_margin[:, None] - np.arange(n - 2)[None, :] * stream_per_minute[:, None])[:n_rows, :]
-#     tx_costs = LIQUIDATION_GAS * gwei_to_eth(gas_prices[gas_indices]) * eth_price[:n_rows, None] * (
-#                 1 - params['refund_rate'])
-#
-#     df = df[:n_rows]  # resize df because of prediction window
-#     n_liquidated = np.asarray(np.array(df['n_liquidated']) > 0) # MAKE MASK
-#     liquidator_profits = margin_left - tx_costs
-#     best_execution_indices = np.argmax(liquidator_profits, axis=1)
-#
-#     df['gas_price_paid'] = gas_prices[gas_indices][np.arange(n_rows), best_execution_indices] * n_liquidated
-#     df['liquidator_pl'] = liquidator_profits[np.arange(n_rows), best_execution_indices] * n_liquidated
-#
-#     return df
-
-
 def calculate_gas_tank_pl(df, params):
-    """ calculates gas tank profit and loss in eth and usd """
+    """ calculates gas tank profit & loss in eth and usd """
     eth_price_col = 'median_gas_price' if params['gas_prediction_ability'] < 3 / 60 else 'gas_price_paid'
 
     df['gas_refunded_eth'] = LIQUIDATION_GAS * df['n_liquidated'] * gwei_to_eth(df[eth_price_col]) * params['refund_rate']
@@ -263,7 +238,7 @@ def calculate_gas_tank_pl(df, params):
     return df
 
 
-def calculate_all_pl(df, params):
+def calculate_pl(df, params):
     """ calculate profit & loss for liquidator and gas tank """
     if params['gas_prediction_ability'] < 3 / 60:  # minimum is 3 minutes for function to work
         df['liquidator_pl'] = calculate_liquidator_pl(df, params)
@@ -274,11 +249,12 @@ def calculate_all_pl(df, params):
 
 
 ####
-# aggregate functions
+# aggregate function
 ####
 
 
 def simulate_and_calculate_pl(df, params):
-    """ simulates liquidations data and calculates profit & loss over data provided in df """
-    df = run_all_simulations(df, params)
-    return calculate_all_pl(df, params)
+    """ simulates liquidations data and calculates profit & loss over provided gas and eth price data """
+    df = simulate_streams_and_liquidations(df, params)
+
+    return calculate_pl(df, params)

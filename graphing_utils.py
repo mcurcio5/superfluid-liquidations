@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 
 def graph_pl(df):
-    """ graph to verify results, not efficient """
+    """ graph to verify results, not efficient or pretty """
     fig, axs = plt.subplots(3, 3, figsize=(18, 14))
     for i, ax in enumerate(axs.flat):
         if i == 0:
