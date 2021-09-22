@@ -13,7 +13,8 @@ rng = default_rng()
 # constants
 ####
 
-LIQUIDATION_GAS = 300000
+OPEN_GAS = 300000
+LIQUIDATION_GAS = 0.8 * OPEN_GAS
 GAMMA_K = 4  # param for stream size distribution
 
 
@@ -67,12 +68,14 @@ def calculate_liquidation_probabilities(params):
     return prob_self_closed, prob_liquidated, prob_closing_tx_is_liquidation
 
 
-def remove_invalid_times(times, n_minutes):
+def remove_invalid_times(times, sizes, n_minutes):
     """ removes events that occur after the time window """
-    return times[np.asarray(times < n_minutes)].astype(int)
+    mask = np.asarray(times < n_minutes)
+
+    return times[mask].astype(int), sizes[mask]
 
 
-def simulate_naive_liquidation_times(times, n_minutes, params):
+def simulate_naive_liquidation_times(times, sizes, n_minutes, params):
     """ simulates arrival of self-closes and liquidations without considering user's incentives """
     n_samples = times.shape[0]
     prob_self_closed, prob_liquidated, prob_closing_tx_is_liquidation = calculate_liquidation_probabilities(params)
@@ -82,16 +85,14 @@ def simulate_naive_liquidation_times(times, n_minutes, params):
     liquidation_mask = np.asarray(rng.uniform(0, 1, n_samples) < prob_closing_tx_is_liquidation)
 
     liquidation_times = times[liquidation_mask]
+    liquidation_sizes = sizes[liquidation_mask]
+    liquidation_times, liquidation_sizes = remove_invalid_times(liquidation_times, liquidation_sizes, n_minutes)
+
     self_closed_times = times[~liquidation_mask]
+    self_closed_sizes = sizes[~liquidation_mask]
+    self_closed_times, self_closed_sizes = remove_invalid_times(self_closed_times, self_closed_sizes, n_minutes)
 
-    return remove_invalid_times(liquidation_times, n_minutes), remove_invalid_times(self_closed_times, n_minutes)
-
-
-def sample_stream_sizes(liquidations_size, self_closed_size, params):
-    """ samples stream sizes from gamma distribution """
-    theta = params['average_stream_size'] / (2 * np.sqrt(GAMMA_K))
-
-    return rng.gamma(GAMMA_K, theta, size=liquidations_size), rng.gamma(GAMMA_K, theta, size=self_closed_size)
+    return liquidation_times, liquidation_sizes, self_closed_times, self_closed_sizes
 
 
 def identify_deliberate_liquidations(gas_price, eth_price, self_closed_times, self_closed_sizes, params):
@@ -103,12 +104,10 @@ def identify_deliberate_liquidations(gas_price, eth_price, self_closed_times, se
     return np.asarray(self_closing_cost > self_closing_margin_value)
 
 
-def convert_small_self_closes_to_liquidations(liquidation_times, self_closed_times, gas_price, eth_price, params):
+def convert_small_self_closes_to_liquidations(liquidation_times, liquidation_sizes, self_closed_times,
+                                              self_closed_sizes, gas_price, eth_price, params):
     """ liquidates at 100% frequency where self-closing cost + min_self_liquidation_savings > margin value
         liquidates small streams at a high frequency """
-    liquidation_sizes, self_closed_sizes = sample_stream_sizes(liquidation_times.shape[0],
-                                                               self_closed_times.shape[0], params)
-
     deliberate_liquidations_mask = identify_deliberate_liquidations(gas_price, eth_price, self_closed_times,
                                                                     self_closed_sizes, params)
 
@@ -121,19 +120,39 @@ def convert_small_self_closes_to_liquidations(liquidation_times, self_closed_tim
     return liquidation_times, self_closed_times, liquidation_sizes, self_closed_sizes
 
 
-def simulate_stream_ends(times, gas_price, eth_price, n_minutes, params):
+def simulate_stream_ends(times, sizes, gas_price, eth_price, n_minutes, params):
     """ simulate stream closing times and sizes for self-closed and liquidations """
-    liquidation_times, self_closed_times = simulate_naive_liquidation_times(times, n_minutes, params)
+    liquidation_times, liquidation_sizes, self_closed_times, self_closed_sizes = simulate_naive_liquidation_times(
+        times, sizes, n_minutes, params)
 
-    return convert_small_self_closes_to_liquidations(liquidation_times, self_closed_times, gas_price, eth_price, params)
+    return convert_small_self_closes_to_liquidations(liquidation_times, liquidation_sizes, self_closed_times,
+                                                     self_closed_sizes, gas_price, eth_price, params)
+
+
+def sample_stream_sizes(stream_times, stream_gas_prices, stream_eth_prices, params):
+    """ samples stream sizes from gamma distribution and removes those where tx cost > month stream value
+        assumes constant stream size distribution over time, so during less streams will be opened on average """
+    theta = params['average_stream_size'] / (2 * np.sqrt(GAMMA_K))  # based on assumed distribution
+    stream_costs = OPEN_GAS * gwei_to_eth(stream_gas_prices) * stream_eth_prices * params['lowest_stream_cost_ratio']
+
+    stream_sizes = rng.gamma(GAMMA_K, theta, size=stream_times.shape[0])
+    opened_streams_mask = np.asarray(stream_sizes > stream_costs)  # streams smaller than current cost not opened
+
+    return stream_times[opened_streams_mask], stream_sizes[opened_streams_mask]
 
 
 def simulate_streams(df, params):
     """ simulates stream start and end times, stream sizes, self-closings, liquidations """
     n_minutes = df.shape[0]
     new_stream_times = sample_new_stream_times(n_minutes, params)
+    # simulate stream sizes
+    new_stream_gas_prices = np.array(df['median_gas_price'])[new_stream_times]
+    new_stream_eth_prices = np.array(df['price'])[new_stream_times]
+    new_stream_times, new_stream_sizes = sample_stream_sizes(new_stream_times, new_stream_gas_prices,
+                                                               new_stream_eth_prices, params)
+
     liquidation_times, self_closed_times, liquidation_sizes, self_closed_sizes = simulate_stream_ends(
-        new_stream_times, np.array(df['median_gas_price']), np.array(df['price']), n_minutes, params)
+        new_stream_times, new_stream_sizes, np.array(df['median_gas_price']), np.array(df['price']), n_minutes, params)
 
     return new_stream_times, liquidation_times, self_closed_times, liquidation_sizes, self_closed_sizes
 

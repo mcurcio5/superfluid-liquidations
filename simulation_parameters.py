@@ -23,7 +23,8 @@ UNIFORM_PARAM_RANGES = {'upfront_hours': [0, 24],
                         'max_days_to_return': [5, 200],
                         'max_liquidation_wait_time': [0, 48],
                         'min_self_liquidation_savings': [0, 20],  # implicit premium for letting protocol liquidate
-                        'gas_prediction_ability': [0, 2]}  # number of hours the liquidator can predict gas prices
+                        'gas_prediction_ability': [0, 2],  # n hours ahead the liquidator has perfect gas price info
+                        'lowest_stream_cost_ratio': [.5, 2]}  # lowest monthly stream / stream cost user opens under
 
 
 def sample_params():
