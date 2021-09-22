@@ -272,8 +272,11 @@ def calculate_pl(df, params):
 ####
 
 
-def simulate_and_calculate_pl(df, params):
+def simulate_and_calculate_pl(df, params, deep_copy=False):
     """ simulates liquidations data and calculates profit & loss over provided gas and eth price data """
+    if deep_copy:  # one line if else is significantly slower
+        df = df.copy(deep=True)
+
     df = simulate_streams_and_liquidations(df, params)
 
     return calculate_pl(df, params)
