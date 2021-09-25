@@ -217,14 +217,14 @@ def calculate_liquidator_pl_with_prediction(df, params):
     l_mask_subset = l_mask[:output_n_rows]  # excludes rows at end of dataset without full window of data
 
     # gas indices create windows of size n - 2 by referencing indices in gas_prices
-    gas_indices = np.arange(n - 2)[None, :] + np.arange(gas_prices.shape[0] - n + 3)[l_mask_subset][:, None]
+    gas_indices = np.arange(n - 2)[None, :] + np.arange(output_n_rows)[l_mask_subset][:, None]
     n_rows = gas_indices.shape[0]  # n rows in subspace of only rows with liquidations
 
-    posted_margin = stream_rate_to_margin(np.array(df['avg_liquidation_size'])[l_mask], params['upfront_hours'])
-    stream_per_minute = month_to_minute(np.array(df['avg_liquidation_size'])[l_mask])
-    eth_price = np.array(df['price'])[l_mask]
+    posted_margin = stream_rate_to_margin(np.array(df['avg_liquidation_size'])[:output_n_rows][l_mask_subset], params['upfront_hours'])
+    stream_per_minute = month_to_minute(np.array(df['avg_liquidation_size'])[:output_n_rows][l_mask_subset])
+    eth_price = np.array(df['price'])[:output_n_rows][l_mask_subset]
 
-    remaining_margin = (posted_margin[:, None] - np.arange(n - 2)[None, :] * stream_per_minute[:, None])[:n_rows, :]
+    remaining_margin = posted_margin[:, None] - np.arange(n - 2)[None, :] * stream_per_minute[:, None]
     tx_costs = LIQUIDATION_GAS * gwei_to_eth(gas_prices[gas_indices]) * eth_price[:n_rows, None] * (
             1 - params['refund_rate'])  # for every possible time per liquidation
 
@@ -236,9 +236,8 @@ def calculate_liquidator_pl_with_prediction(df, params):
     gas_prices_paid = np.zeros(output_n_rows)  # initialize for speed
     liquidator_pl = np.zeros(output_n_rows)
 
-    subset_size = np.sum(l_mask_subset)
-    gas_prices_paid[l_mask_subset] = gas_prices[gas_indices][np.arange(n_rows), best_execution_indices][:subset_size]
-    liquidator_pl[l_mask_subset] = liquidator_profits[np.arange(n_rows), best_execution_indices][:subset_size]
+    gas_prices_paid[l_mask_subset] = gas_prices[gas_indices][np.arange(n_rows), best_execution_indices]
+    liquidator_pl[l_mask_subset] = liquidator_profits[np.arange(n_rows), best_execution_indices]
 
     df['gas_price_paid'] = gas_prices_paid
     df['liquidator_pl'] = liquidator_pl
