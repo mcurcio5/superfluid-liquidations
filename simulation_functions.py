@@ -279,3 +279,7 @@ def simulate_and_calculate_pl(df, params, deep_copy=False):
     df = simulate_streams_and_liquidations(df, params)
 
     return calculate_pl(df, params)
+
+
+def simulate_and_calculate_n_times(df, params):
+    """ simulates and calculates n times """
