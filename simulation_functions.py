@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from numpy.random import default_rng
 
+from simulation_parameters import sample_params
 from metrics_extraction import calculate_metrics
 
 pd.options.mode.chained_assignment = None
@@ -283,11 +284,12 @@ def simulate_and_calculate_pl(df, params, deep_copy=False):
     return calculate_pl(df, params)
 
 
-def simulate_and_calculate_n_times(df, params, n_sims=1000):
+def simulate_and_calculate_n_times(df, n_sims=1000):
     """ simulates and calculates metrics for simulations """
-    output = np.zeros((n_sims, 19))
+    output = np.zeros((n_sims, 18))
     for i in range(n_sims):
         local_df = df.copy(deep=True)
+        params = sample_params()
         local_df = simulate_and_calculate_pl(local_df, params)
         metrics = calculate_metrics(local_df)
         metrics_dict = {**params, **metrics}
