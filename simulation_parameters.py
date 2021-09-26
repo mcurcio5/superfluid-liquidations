@@ -10,21 +10,21 @@ rng = default_rng()
 
 pd.options.mode.chained_assignment = None
 
-LOGUNIFORM_PARAM_RANGES = {'upfront_fee': [0, .1],
-                           'monthly_opened_streams': [100, 1000],
-                           'average_stream_lifetime': [5, 365],  # days
-                           'percent_accidently_liquidated_per_month': [0.1, 30],  # on accident
-                           'average_stream_size': [10, 10000],  # if higher... then that's success
-                           'liquidator_capital': [1000, 100000]}
+LOGUNIFORM_PARAM_RANGES = {
+    'upfront_fee': [0.002, .05],
+    'monthly_opened_streams': [100, 10000],
+    'average_stream_lifetime': [3, 250],  # days
+    'percent_accidently_liquidated_per_month': [0.2, 60],  # on accident
+    'average_stream_size': [100, 10000]  # if higher... then that's success
+}
 
-UNIFORM_PARAM_RANGES = {'upfront_hours': [0, 24],
-                        'refund_rate': [0, 1],
-                        'gas_tank_size': [1, 500],
-                        'max_days_to_return': [5, 200],
-                        'max_liquidation_wait_time': [0, 48],
-                        'min_self_liquidation_savings': [0, 20],  # implicit premium for letting protocol liquidate
-                        'gas_prediction_ability': [0, 2],  # n hours ahead the liquidator has perfect gas price info
-                        'lowest_stream_cost_ratio': [.5, 2]}  # lowest monthly stream / stream cost user opens under
+UNIFORM_PARAM_RANGES = {
+    'upfront_hours': [0, 20],
+    'refund_rate': [0, 1],
+    'min_self_liquidation_savings': [2, 50],  # implicit premium for letting protocol liquidate
+    'gas_prediction_ability': [0, 2],  # n hours ahead the liquidator has perfect gas price info
+    'lowest_stream_cost_ratio': [.8, 4],  # lowest monthly stream / stream cost user opens under
+}
 
 
 def sample_params():
