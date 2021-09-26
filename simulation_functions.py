@@ -18,7 +18,6 @@ rng = default_rng()
 
 OPEN_GAS = 300000
 LIQUIDATION_GAS = 0.8 * OPEN_GAS
-GAMMA_K = 4  # param for stream size distribution
 
 
 ####
@@ -135,10 +134,11 @@ def simulate_stream_ends(times, sizes, gas_price, eth_price, n_minutes, params):
 def sample_stream_sizes(stream_times, stream_gas_prices, stream_eth_prices, params):
     """ samples stream sizes from gamma distribution and removes those where tx cost > month stream value
         assumes constant stream size distribution over time, so during less streams will be opened on average """
-    theta = params['average_stream_size'] / (2 * np.sqrt(GAMMA_K))  # based on assumed distribution
+    gamma_k = params['distribution_inverse_skewness']
+    theta = params['average_stream_size'] / gamma_k  # based on assumed distribution
     stream_costs = OPEN_GAS * gwei_to_eth(stream_gas_prices) * stream_eth_prices * params['lowest_stream_cost_ratio']
 
-    stream_sizes = rng.gamma(GAMMA_K, theta, size=stream_times.shape[0])
+    stream_sizes = rng.gamma(gamma_k, theta, size=stream_times.shape[0])
     opened_streams_mask = np.asarray(stream_sizes > stream_costs)  # streams smaller than current cost not opened
 
     return stream_times[opened_streams_mask], stream_sizes[opened_streams_mask]
@@ -285,7 +285,7 @@ def simulate_and_calculate_pl(df, params, deep_copy=False):
 
 def simulate_and_calculate_n_times(df, n_sims=1000):
     """ simulates and calculates metrics for simulations """
-    output = np.zeros((n_sims, 18))
+    output = np.zeros((n_sims, 20))
     for i in range(n_sims):
         local_df = df.copy(deep=True)
         params = sample_params()

@@ -35,6 +35,7 @@ def calculate_metrics(df):
         'gas_tank_md': gas_tank_md,
         'gas_tank_md_time': gas_tank_md_time,
         'gas_tank_eth_pl': gas_tank_eth_pl_cumsum[-1],
+        'gas_tank_usd_pl': np.sum(df['gas_tank_usd_pl']),
         'n_streams_self_closed': n_streams_self_closed,
         'percent_self_closed': percent_self_closed,
     }
