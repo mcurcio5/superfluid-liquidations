@@ -215,7 +215,6 @@ def calculate_liquidator_pl_with_prediction(df, params):
     gas_prices = np.array(df['three_min_median'])  # use 3 min median gas price for accurate execution prices
     output_n_rows = gas_prices.shape[0] - n + 3
 
-    # create mask to select only rows with liquidations for ~50x more efficient computation
     l_mask = np.asarray(np.array(df['n_liquidated']) > 0)  # for selecting rows in full df
     l_mask_subset = l_mask[:output_n_rows]  # excludes rows at end of dataset without full window of data
 
@@ -250,7 +249,7 @@ def calculate_liquidator_pl_with_prediction(df, params):
 
 def calculate_gas_tank_pl(df, params):
     """ calculates gas tank profit & loss in eth and usd """
-    eth_price_col = 'median_gas_price' if params['gas_prediction_ability'] < 3 / 60 else 'gas_price_paid'
+    eth_price_col = 'median_gas_price' if params['gas_prediction_ability'] <= 3 / 60 else 'gas_price_paid'
 
     df['gas_refunded_eth'] = LIQUIDATION_GAS * df['n_liquidated'] * gwei_to_eth(df[eth_price_col]) * params['refund_rate']
     df['gas_tank_eth_pl'] = df['n_opened'] * params['upfront_fee'] - df['gas_refunded_eth']
@@ -261,7 +260,7 @@ def calculate_gas_tank_pl(df, params):
 
 def calculate_pl(df, params):
     """ calculate profit & loss for liquidator and gas tank """
-    if params['gas_prediction_ability'] < 3 / 60:  # minimum is 3 minutes for function to work
+    if params['gas_prediction_ability'] <= 3 / 60:  # minimum is 3 minutes for function to work
         df['liquidator_pl'] = calculate_liquidator_pl(df, params)
     else:
         df = calculate_liquidator_pl_with_prediction(df, params)

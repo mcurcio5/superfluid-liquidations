@@ -11,6 +11,7 @@ seaborn = "*"
 scipy = "*"
 jupyterlab = "*"
 line-profiler = "*"
+scikit-learn = "*"
 
 [dev-packages]
 
