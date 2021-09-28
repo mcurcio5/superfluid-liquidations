@@ -14,14 +14,14 @@ def graph_pl(df):
             df['gas_tank_eth_pl'].cumsum().plot(ax=ax)
             ax.set_title('gas tank eth p&l')
         elif i == 2:
-            df['gas_tank_usd_pl'].cumsum().plot(ax=ax)
-            ax.set_title('gas tank usd p&l')
+            (df['gas_tank_eth_pl'].cumsum() * df['price']).plot(ax=ax)
+            ax.set_title('gas tank marked to market usd p&l')
         elif i == 3:
             df['price'].plot(ax=ax)
             ax.set_title('price of eth')
         elif i == 4:
-            df['avg_median'].plot(ax=ax)
-            ax.set_title('avg median gas price')
+            df['three_min_median'].plot(ax=ax)
+            ax.set_title('3min median gas price')
         elif i == 5:
             (df['n_opened'].cumsum() - df['n_self_closed'].cumsum() - df['n_liquidated'].cumsum()).plot(ax=ax)
             ax.set_title('n streams open')
