@@ -287,7 +287,7 @@ def simulate_and_calculate_pl(df, params, deep_copy=False):
 
 def simulate_and_calculate_n_times(df, n_sims=1000):
     """ simulates and calculates metrics for simulations """
-    output = np.zeros((n_sims, 18))
+    output = np.zeros((n_sims, 20))
     for i in range(n_sims):
         local_df = df.copy(deep=True)
         params = sample_params()
