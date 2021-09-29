@@ -11,9 +11,8 @@ rng = default_rng()
 pd.options.mode.chained_assignment = None
 
 N_CORE_PARAMS = 5
-FEES = np.exp(np.linspace(np.log(.002), np.log(.05), N_CORE_PARAMS))
-HOURS = np.linspace(20, 0, N_CORE_PARAMS)
-CORE_PARAMS = [{'upfront_fee': a, 'upfront_hours': b} for a, b in list(zip(FEES, HOURS))]
+FEES = np.array([.01, .025, .04])
+HOURS = np.array([.5, 1, 2, 4, 8, 16])
 
 LOGUNIFORM_PARAM_RANGES = {
     'monthly_opened_streams': [100, 10000],
@@ -33,7 +32,7 @@ UNIFORM_PARAM_RANGES = {
 
 def sample_params():
     """ samples param space randomly """
-    core_params = np.random.choice(CORE_PARAMS)
+    core_params = {'upfront_fee': np.random.choice(FEES), 'upfront_hours': np.random.choice(HOURS)}
     loguniform_params = {p: np.exp(rng.uniform(np.log(LOGUNIFORM_PARAM_RANGES[p][0] + .0001),
                                                np.log(LOGUNIFORM_PARAM_RANGES[p][1] + .0001))) for p in
                          LOGUNIFORM_PARAM_RANGES}
