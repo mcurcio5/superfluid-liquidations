@@ -138,7 +138,8 @@ def sample_stream_sizes(stream_times, stream_gas_prices, stream_eth_prices, para
         assumes constant stream size distribution over time, so during less streams will be opened on average """
     gamma_k = params['distribution_inverse_skewness']
     theta = params['average_stream_size'] / gamma_k  # based on assumed distribution
-    stream_costs = OPEN_GAS * gwei_to_eth(stream_gas_prices) * stream_eth_prices * params['lowest_stream_cost_ratio']
+    stream_costs = ((OPEN_GAS * gwei_to_eth(stream_gas_prices) + params['upfront_fee']) *  # upfront fee + gas cost
+                    stream_eth_prices * params['lowest_stream_cost_ratio'])  # do we want to add margin here too?
 
     stream_sizes = rng.gamma(gamma_k, theta, size=stream_times.shape[0])
     opened_streams_mask = np.asarray(stream_sizes > stream_costs)  # streams smaller than current cost not opened
@@ -154,7 +155,7 @@ def simulate_streams(df, params):
     new_stream_gas_prices = np.array(df['median_gas_price'])[new_stream_times]
     new_stream_eth_prices = np.array(df['price'])[new_stream_times]
     new_stream_times, new_stream_sizes = sample_stream_sizes(new_stream_times, new_stream_gas_prices,
-                                                               new_stream_eth_prices, params)
+                                                             new_stream_eth_prices, params)
 
     liquidation_times, self_closed_times, liquidation_sizes, self_closed_sizes = simulate_stream_ends(
         new_stream_times, new_stream_sizes, np.array(df['median_gas_price']), np.array(df['price']), n_minutes, params)
