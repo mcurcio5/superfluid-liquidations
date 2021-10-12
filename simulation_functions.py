@@ -16,9 +16,9 @@ rng = default_rng()
 # constants
 ####
 
-OPEN_GAS = 300000
-LIQUIDATION_GAS = 0.8 * OPEN_GAS
-STANDARD_TX_GAS = 21000
+OPEN_GAS = 228000
+LIQUIDATION_GAS = 223000
+STANDARD_TX_GAS = 140000
 
 
 ####
@@ -102,7 +102,7 @@ def identify_deliberate_liquidations(gas_price, eth_price, self_closed_times, se
     """ returns mask of self-closed liquidations where user opts to deliberately default due to high gas costs
         note: user can always transfer money out of wallet for cost of STANDARD_TX_GAS """
     self_closing_cost = gwei_to_eth(gas_price[self_closed_times]) * (LIQUIDATION_GAS - STANDARD_TX_GAS) * eth_price[
-        self_closed_times] + params['min_self_liquidation_savings']
+        self_closed_times] - params['min_self_liquidation_savings']
     self_closing_margin_value = stream_rate_to_margin(self_closed_sizes, params['upfront_hours'])
 
     return np.asarray(self_closing_cost > self_closing_margin_value)
@@ -110,7 +110,7 @@ def identify_deliberate_liquidations(gas_price, eth_price, self_closed_times, se
 
 def convert_small_self_closes_to_liquidations(liquidation_times, liquidation_sizes, self_closed_times,
                                               self_closed_sizes, gas_price, eth_price, params):
-    """ liquidates at 100% frequency where self-closing cost + min_self_liquidation_savings - standard tx cost > margin
+    """ liquidates at 100% frequency where self-closing cost - min_self_liquidation_savings - standard tx cost > margin
         liquidates small streams at a high frequency """
     deliberate_liquidations_mask = identify_deliberate_liquidations(gas_price, eth_price, self_closed_times,
                                                                     self_closed_sizes, params)
